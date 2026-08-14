@@ -250,7 +250,11 @@ class SeniorDashboardAllDay(BasePlugin):
         parsed_events = []
         for calendar_url, color in zip(calendar_urls, colors):
             cal = self.fetch_calendar(calendar_url)
-            events = recurring_ical_events.of(cal).between(start_range, end_range)
+#            events = recurring_ical_events.of(cal).between(start_range, end_range)
+            events = recurring_ical_events.of(
+                cal,
+                components=["VEVENT", "VTODO"]
+            ).between(start_range, end_range)
             contrast_color = self.get_contrast_color(color)
 
             for event in list(events):
@@ -323,7 +327,18 @@ class SeniorDashboardAllDay(BasePlugin):
 
     def parse_data_points(self, event, tz):
         all_day = False
-        dtstart = event.decoded("dtstart")
+
+        # VEVENT uses DTSTART, VTODO usually uses DUE
+        if event.name == "VTODO":
+            if "due" in event:
+                dtstart = event.decoded("due")
+            elif "dtstart" in event:
+                dtstart = event.decoded("dtstart")
+            else:
+                return None, None, True
+        else:
+            dtstart = event.decoded("dtstart")
+
         if isinstance(dtstart, datetime):
             start = dtstart.astimezone(tz).isoformat()
         else:
@@ -331,16 +346,41 @@ class SeniorDashboardAllDay(BasePlugin):
             all_day = True
 
         end = None
-        if "dtend" in event:
-            dtend = event.decoded("dtend")
-            if isinstance(dtend, datetime):
-                end = dtend.astimezone(tz).isoformat()
-            else:
-                end = dtend.isoformat()
-        elif "duration" in event:
-            duration = event.decoded("duration")
-            end = (dtstart + duration).isoformat()
+
+        # VTODOs don't have DTEND/DURATION in the same sense as VEVENTs
+        if event.name != "VTODO":
+            if "dtend" in event:
+                dtend = event.decoded("dtend")
+                if isinstance(dtend, datetime):
+                    end = dtend.astimezone(tz).isoformat()
+                else:
+                    end = dtend.isoformat()
+            elif "duration" in event:
+                duration = event.decoded("duration")
+                end = (dtstart + duration).isoformat()
+
         return start, end, all_day
+    
+#    def parse_data_points(self, event, tz):
+#        all_day = False
+#        dtstart = event.decoded("dtstart")
+#        if isinstance(dtstart, datetime):
+#            start = dtstart.astimezone(tz).isoformat()
+#        else:
+#            start = dtstart.isoformat()
+#            all_day = True
+#
+#        end = None
+#        if "dtend" in event:
+#            dtend = event.decoded("dtend")
+#            if isinstance(dtend, datetime):
+#                end = dtend.astimezone(tz).isoformat()
+#            else:
+#                end = dtend.isoformat()
+#        elif "duration" in event:
+#            duration = event.decoded("duration")
+#            end = (dtstart + duration).isoformat()
+#        return start, end, all_day
 
     def _normalize_url(self, calendar_url):
         """Rewrite webcal:// URLs to https:// (requests cannot handle the webcal scheme)."""
